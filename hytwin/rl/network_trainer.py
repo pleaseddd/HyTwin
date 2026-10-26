@@ -51,6 +51,8 @@ def train_network_agent(
     callback=None,
     device: str = "auto",
     normalize_reward: bool = False,
+    eval_every: int = 25_000,
+    eval_seeds=range(900, 910),
 ):
     """
     Train a PPO agent on the network env.  Returns the trained model.
@@ -58,8 +60,9 @@ def train_network_agent(
     Requires stable-baselines3.  ``save_path`` (without extension) saves a
     ``.zip`` loadable by :class:`NetworkRLController`.
 
-    A ``best_model.zip`` is saved alongside whenever a new best mean episode
-    reward is achieved (rolling window of 10 episodes).  The ``_find_rl_model``
+    A ``best_model.zip`` is saved alongside whenever the deterministic policy
+    reaches a new best mean reward on a fixed set of evaluation days
+    (``eval_seeds``, checked every ``eval_every`` steps).  The ``_find_rl_model``
     auto-discovery function in the demo script and dashboard prioritises this
     file over the most-recent timestamped checkpoint.
 
@@ -126,7 +129,9 @@ def train_network_agent(
 
     # Build final callback list: optional dashboard callback + best-model saver
     # ._inner: SB3 requires a real BaseCallback, not the delegating wrapper
-    best_cb = _BestModelCallback(save_path)._inner if save_path else None
+    best_cb = (_eval_best_callback(BaseCallback, make_env(topology, dt_seconds, episode_steps, reward_config),
+                                   save_path, list(eval_seeds), max(1, eval_every // n_envs))
+               if save_path else None)
     cbs = [c for c in [callback, best_cb] if c is not None]
     final_cb = CallbackList(cbs) if len(cbs) > 1 else (cbs[0] if cbs else None)
 
@@ -139,53 +144,37 @@ def train_network_agent(
     return model
 
 
-class _BestModelCallback:
-    """Saves <model_dir>/best_model.zip whenever a new best mean reward is found."""
+def _eval_best_callback(BaseCallback, env, save_path: str, seeds, every_calls: int):
+    """Save <model_dir>/best_model.zip when the deterministic policy improves on fixed days.
 
-    def __init__(self, save_path: str, window: int = 10):
-        from stable_baselines3.common.callbacks import BaseCallback
+    The training-episode mean used before compared different, random days (and a
+    stochastic policy), so it picked lucky checkpoints rather than better ones.
+    """
+    best_path = str(Path(save_path).parent / "best_model")
 
-        class _Inner(BaseCallback):
-            def __init__(inner_self):
-                super().__init__()
-                inner_self._best = -float("inf")
-                inner_self._ep_rewards: list[float] = []
-                inner_self._best_path = str(Path(save_path).parent / "best_model")
+    class _EvalBest(BaseCallback):
+        def __init__(self):
+            super().__init__()
+            self._best = -float("inf")
 
-            def _on_step(inner_self) -> bool:
-                for info in inner_self.locals.get("infos", []):
-                    if "episode" in info:
-                        inner_self._ep_rewards.append(float(info["episode"]["r"]))
-                recent = inner_self._ep_rewards[-window:]
-                if len(recent) >= window:
-                    mean = sum(recent) / len(recent)
-                    if mean > inner_self._best:
-                        inner_self._best = mean
-                        inner_self.model.save(inner_self._best_path)
-                        logger.info("New best model (mean reward %.2f) → %s.zip",
-                                    mean, inner_self._best_path)
+        def _on_step(self) -> bool:
+            if self.n_calls % every_calls:
                 return True
+            total = 0.0
+            for seed in seeds:
+                obs, _ = env.reset(seed=seed)
+                done = False
+                while not done:
+                    action, _ = self.model.predict(obs, deterministic=True)
+                    obs, r, terminated, truncated, _ = env.step(action)
+                    total += r
+                    done = terminated or truncated
+            mean = total / len(seeds)
+            self.logger.record("eval/mean_reward", mean)
+            if mean > self._best:
+                self._best = mean
+                self.model.save(best_path)
+                logger.info("New best model (eval mean reward %.2f) → %s.zip", mean, best_path)
+            return True
 
-        self._inner = _Inner()
-
-    # delegate BaseCallback interface used by SB3
-    def __getattr__(self, name):
-        return getattr(self._inner, name)
-
-    def init_callback(self, model):
-        return self._inner.init_callback(model)
-
-    def on_training_start(self, locals_, globals_):
-        return self._inner.on_training_start(locals_, globals_)
-
-    def on_rollout_start(self):
-        return self._inner.on_rollout_start()
-
-    def on_step(self) -> bool:
-        return self._inner.on_step()
-
-    def on_rollout_end(self):
-        return self._inner.on_rollout_end()
-
-    def on_training_end(self):
-        return self._inner.on_training_end()
+    return _EvalBest()
