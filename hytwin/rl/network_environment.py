@@ -18,12 +18,13 @@ Design (per-node factored, see docs/08_network_layer_plan.md §8)
   network-aware coordination the rule controller had to be hand-tuned for.
 
 The reward is a network-level weighted objective (cost, CO₂, unmet demand,
-self-sufficiency, renewable use, H₂-SOC health).  Each episode's weather /
-price / grid randomness lives on an **isolated** ``numpy.random.Generator``
-subtree, seeded per-episode from Gymnasium's own ``self.np_random`` (see
-:meth:`NetworkH2GridEnv.reset`) — never the shared global RNG — so this env
-stays fully reproducible given ``reset(seed=…)`` and safe to run concurrently
-with any other simulation (e.g. a live dashboard) in the same process.
+self-sufficiency, renewable use, H₂-SOC health, demand-response cost).  Each
+episode's weather / price / grid randomness lives on an **isolated**
+``numpy.random.Generator`` subtree, seeded per-episode from Gymnasium's own
+``self.np_random`` (see :meth:`NetworkH2GridEnv.reset`) — never the shared
+global RNG — so this env stays fully reproducible given ``reset(seed=…)`` and
+safe to run concurrently with any other simulation (e.g. a live dashboard) in
+the same process.
 """
 
 from __future__ import annotations
@@ -122,6 +123,10 @@ class NetworkRewardConfig:
     # sustainable, mirroring the ``storage_adjusted_cost`` KPI.
     w_storage_value: float = 1.0
     h2_value_eur_per_kg: float = 4.0
+    # Demand response is not free: shed load is paid back to consumers at
+    # ``dr_cost_eur_per_kwh``.  Without it the agent sheds load at every step.
+    w_demand_response: float = 1.0
+    dr_cost_eur_per_kwh: float = 0.20
     soc_target: float = 0.5
     ref_cost_eur_step: float = 5.0
     ref_co2_kg_step: float = 10.0
@@ -334,14 +339,25 @@ class NetworkH2GridEnv(gym.Env):
             delta_h2 * rc.h2_value_eur_per_kg / rc.ref_cost_eur_step
         )
 
+        dr_term = -rc.w_demand_response * (
+            self._dr_shed_kw() * self._dt / 3600.0 * rc.dr_cost_eur_per_kwh / rc.ref_cost_eur_step
+        )
+
         total = (cost_term + co2_term + unmet_term + ss_term + renew_term
-                 + soc_term + curt_term + storage_term)
+                 + soc_term + curt_term + storage_term + dr_term)
         terms = {
             "cost": cost_term, "co2": co2_term, "unmet": unmet_term,
             "self_sufficiency": ss_term, "renewable": renew_term,
             "soc": soc_term, "curtailment": curt_term, "storage": storage_term,
+            "demand_response": dr_term,
         }
         return total, terms
+
+    def _dr_shed_kw(self) -> float:
+        return float(sum(
+            self._twin.site(sid).nodes[lid].model.state.values.get("dr_shed_kw", 0.0)
+            for sid in self._site_ids for lid in self._load_ids[sid]
+        ))
 
     def _total_h2(self) -> float:
         return float(sum(
