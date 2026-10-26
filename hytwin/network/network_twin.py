@@ -214,6 +214,13 @@ class NetworkTwin:
         gs_by_site: Dict[str, GridState] = {}
         for sid, twin in self._sites.items():
             actions = actions_by_site.get(sid) or self._naive_site_actions(sid)
+            # Fuel cells may only burn H2 that is in the site tanks.
+            # site_discharge splits evenly, so each tank yields at most the emptiest one's mass.
+            tanks = self._tanks_by_site[sid]
+            fcs = [nid for nid, n in twin.nodes.items() if isinstance(n.model, FuelCellModel)]
+            if tanks and fcs:
+                h2_kg = len(tanks) * min(t.soc * t.max_capacity_kg for t in tanks) / len(fcs)
+                actions = {**actions, **{f: {**actions.get(f, {}), "h2_available_kg": h2_kg} for f in fcs}}
             readings = None
             mgr = self._sensor_mgrs.get(sid)
             if mgr is not None:
