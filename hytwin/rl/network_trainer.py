@@ -50,6 +50,7 @@ def train_network_agent(
     verbose: int = 0,
     callback=None,
     device: str = "auto",
+    normalize_reward: bool = False,
 ):
     """
     Train a PPO agent on the network env.  Returns the trained model.
@@ -69,6 +70,10 @@ def train_network_agent(
         ``SubprocVecEnv`` workers — one per CPU core — and multiply sample
         throughput without changing the learning algorithm.  Each worker gets
         a distinct seed (``seed + i``).
+    normalize_reward : bool
+        Wrap the env in ``VecNormalize(norm_obs=False, norm_reward=True)``:
+        rewards are divided by a running std of the discounted return.
+        Observations are untouched, so the saved model needs no stats.
     device : str
         PyTorch device string passed to SB3 (default ``"auto"`` → CUDA if
         available, else CPU).
@@ -81,7 +86,7 @@ def train_network_agent(
         from stable_baselines3 import PPO
         from stable_baselines3.common.callbacks import BaseCallback, CallbackList
         from stable_baselines3.common.monitor import Monitor
-        from stable_baselines3.common.vec_env import SubprocVecEnv
+        from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
     except ImportError as e:  # pragma: no cover
         raise ImportError("stable-baselines3 is required to train the network agent") from e
 
@@ -102,6 +107,11 @@ def train_network_agent(
         start = "fork" if "fork" in mp.get_all_start_methods() else "spawn"
         env = SubprocVecEnv([_make_factory(i) for i in range(n_envs)], start_method=start)
         logger.info("SubprocVecEnv: %d parallel workers", n_envs)
+
+    if normalize_reward:
+        if n_envs == 1:
+            env = DummyVecEnv([lambda e=env: e])
+        env = VecNormalize(env, norm_obs=False, norm_reward=True, gamma=0.99)
 
     total_buffer = n_steps * n_envs
     batch_size = min(256, total_buffer)
