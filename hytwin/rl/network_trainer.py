@@ -112,7 +112,8 @@ def train_network_agent(
     )
 
     # Build final callback list: optional dashboard callback + best-model saver
-    best_cb = _BestModelCallback(save_path) if save_path else None
+    # ._inner: SB3 requires a real BaseCallback, not the delegating wrapper
+    best_cb = _BestModelCallback(save_path)._inner if save_path else None
     cbs = [c for c in [callback, best_cb] if c is not None]
     final_cb = CallbackList(cbs) if len(cbs) > 1 else (cbs[0] if cbs else None)
 
