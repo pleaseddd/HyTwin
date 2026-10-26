@@ -97,7 +97,10 @@ def train_network_agent(
                 return Monitor(e)
             return _factory
 
-        env = SubprocVecEnv([_make_factory(i) for i in range(n_envs)], start_method="fork")
+        # "fork" does not exist on Windows; "spawn" needs the caller's __main__ guard.
+        import multiprocessing as mp
+        start = "fork" if "fork" in mp.get_all_start_methods() else "spawn"
+        env = SubprocVecEnv([_make_factory(i) for i in range(n_envs)], start_method=start)
         logger.info("SubprocVecEnv: %d parallel workers", n_envs)
 
     total_buffer = n_steps * n_envs
