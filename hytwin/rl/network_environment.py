@@ -214,7 +214,11 @@ class NetworkH2GridEnv(gym.Env):
         # `numpy.random` state (safe for concurrent training + live sim).
         episode_seed = int(self.np_random.integers(0, 2**31 - 1))
         self._twin = NetworkTwin(self._topo, soc_target=self._rc.soc_target, seed=episode_seed)
-        self._ts = self._start
+        # Random start day (all seasons, weekdays and tariff bands), as in
+        # advanced_environment; options={"random_start": False} keeps start_time.
+        random_start = True if options is None else bool(options.get("random_start", True))
+        day_offset = int(self.np_random.integers(0, 365)) if random_start else 0
+        self._ts = self._start + timedelta(days=day_offset)
         self._step_count = 0
         self._last_state = None
         self._prev_h2_total = self._total_h2()
