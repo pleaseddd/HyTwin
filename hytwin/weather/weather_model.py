@@ -299,6 +299,11 @@ class WeatherModel:
         self._T: float = temp_mean_c
         self._T_autocorr: float = 0.97
 
+        # Cloud and temperature start from the climatology of the first step's
+        # date, not the annual mean (a January run would otherwise need ~1 day
+        # to cool down).
+        self._at_start: bool = True
+
     def step(self, timestamp: datetime, synoptic: float = 0.0) -> Dict[str, float]:
         """
         Generate weather for one time step.
@@ -340,6 +345,8 @@ class WeatherModel:
             self._cloud_mean * (1.0 + self._cloud_seasonal_amp * math.cos(2 * math.pi * (doy - 15) / 365)),
             0.02, 0.97,
         ))
+        if self._at_start:
+            self._cloud = seasonal_cloud_mean
         logit_target = math.log(seasonal_cloud_mean / (1 - seasonal_cloud_mean))
         cloud_noise_std = math.sqrt(1 - self._cloud_autocorr ** 2) * 0.15
         logit_cloud = math.log(self._cloud / (1 - self._cloud + 1e-9) + 1e-9)
@@ -381,6 +388,9 @@ class WeatherModel:
         # SUMMER-peaking — coldest in mid-January, hottest in mid-July.
         seasonal_T = self._T_mean - self._T_amp * math.cos(2 * math.pi * (doy - 15) / 365)
         diurnal_T = 5.0 * math.sin(math.pi * (timestamp.hour - 6) / 12)
+        if self._at_start:
+            self._T = seasonal_T + diurnal_T
+            self._at_start = False
         T_noise_std = math.sqrt(1 - self._T_autocorr ** 2) * 1.5
         self._T = self._T_autocorr * self._T + (1 - self._T_autocorr) * (seasonal_T + diurnal_T) + self._rng.normal(0, T_noise_std)
 
@@ -409,6 +419,7 @@ class WeatherModel:
     def reset(self) -> None:
         self._cloud = self._cloud_mean
         self._T = self._T_mean
+        self._at_start = True
         # Rebuild from the ORIGINAL base scale (self._wind._c drifts away from
         # it each step via set_scale()'s seasonal/diurnal modulation) and
         # preserve the existing generator (whether a real per-instance
