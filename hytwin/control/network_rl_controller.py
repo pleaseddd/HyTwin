@@ -59,10 +59,7 @@ class NetworkRLController:
     def compute_actions(self, prev_state, timestamp: datetime):
         obs = self._obs_from_state(prev_state, timestamp)
         action, _ = self._model.predict(obs, deterministic=True)
-        action = np.asarray(action, dtype=np.float32)
-        if self._model.action_space.low.min() < 0:   # [-1, 1] models; older ones used [0, 1]
-            action = (action + 1.0) / 2.0
-        return self._ref._decode(np.clip(action, 0.0, 1.0))
+        return self._ref._decode(np.clip(np.asarray(action, dtype=np.float32), 0.0, 1.0))
 
     def reset(self) -> None:
         pass
