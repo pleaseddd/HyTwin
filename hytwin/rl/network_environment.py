@@ -128,8 +128,11 @@ class NetworkRewardConfig:
     w_demand_response: float = 1.0
     dr_cost_eur_per_kwh: float = 0.20
     soc_target: float = 0.5
-    ref_cost_eur_step: float = 5.0
-    ref_co2_kg_step: float = 10.0
+    # Typical |cost| and CO2 per step on the pilot network over random days
+    # (spento/classical, 40 days: ~12-13 EUR, ~22-26 kg); 5 / 10 were tuned
+    # on a single June Saturday.  Re-measure for other topologies.
+    ref_cost_eur_step: float = 13.0
+    ref_co2_kg_step: float = 25.0
     ref_curtail_kw: float = 500.0
 
 
