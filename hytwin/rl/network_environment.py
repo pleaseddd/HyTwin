@@ -12,7 +12,7 @@ Design (per-node factored, see docs/08_network_layer_plan.md §8)
      fuel_cell/cap, electrolyzer/cap, net_balance/ref]
   → obs_dim = 8·N + 2.
 * **Action** — a per-site block ``[el_setpoint, fc_setpoint, demand_response]``
-  in [0,1] → act_dim = 3·N.  The *inter-node flows and national-grid slack are
+  in [-1,1] (rescaled to [0,1] before decoding) → act_dim = 3·N.  The *inter-node flows and national-grid slack are
   resolved by the F3 network dispatch*, exactly as for the classical controller,
   so the agent learns the same lever set (local assets) and must discover the
   network-aware coordination the rule controller had to be hand-tuned for.
@@ -194,7 +194,9 @@ class NetworkH2GridEnv(gym.Env):
         obs_dim = N_SITE_OBS * self._n + N_GLOBAL_OBS + N_FORECAST
         act_dim = N_SITE_ACT * self._n
         self.observation_space = spaces.Box(-2.0, 2.0, shape=(obs_dim,), dtype=np.float32)
-        self.action_space = spaces.Box(0.0, 1.0, shape=(act_dim,), dtype=np.float32)
+        # Symmetric [-1, 1] (SB3 advice): with [0, 1] PPO's initial Gaussian
+        # (mean 0, std 1) had ~2/3 of its samples clipped to 0 or 1.
+        self.action_space = spaces.Box(-1.0, 1.0, shape=(act_dim,), dtype=np.float32)
 
         self._twin: Optional[NetworkTwin] = None
         self._ts = self._start
@@ -228,7 +230,7 @@ class NetworkH2GridEnv(gym.Env):
         return self._observe_cold(), {}
 
     def step(self, action: np.ndarray):
-        action = np.clip(np.asarray(action, dtype=np.float32), 0.0, 1.0)
+        action = (np.clip(np.asarray(action, dtype=np.float32), -1.0, 1.0) + 1.0) / 2.0
         actions_by_site = self._decode(action)
         ns = self._twin.step(self._dt, self._ts, actions_by_site)
         self._last_state = ns
