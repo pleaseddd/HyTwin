@@ -360,10 +360,11 @@ class NetworkH2GridEnv(gym.Env):
         ))
 
     def _total_h2(self) -> float:
+        # Tanks plus gas in transit: an H2 transfer is not a loss.
         return float(sum(
             sum(t.mass_kg for t in tanks)
             for tanks in self._twin._tanks_by_site.values()
-        ))
+        ) + sum(p.linepack_kg for p in self._twin._pipe_models.values()))
 
     # ------------------------------------------------------------------
     @property
