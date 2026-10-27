@@ -59,7 +59,10 @@ class NetworkRLController:
     def compute_actions(self, prev_state, timestamp: datetime):
         obs = self._obs_from_state(prev_state, timestamp)
         action, _ = self._model.predict(obs, deterministic=True)
-        return self._ref._decode(np.clip(np.asarray(action, dtype=np.float32), 0.0, 1.0))
+        action = np.asarray(action, dtype=np.float32)
+        if action.size == N_SITE_ACT * len(self._site_ids):  # model trained with 3 slots per site
+            action = action[self._ref._legacy_idx]
+        return self._ref._decode(np.clip(action, 0.0, 1.0))
 
     def reset(self) -> None:
         pass

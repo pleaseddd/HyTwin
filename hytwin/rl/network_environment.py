@@ -11,8 +11,9 @@ Design (per-node factored, see docs/08_network_layer_plan.md §8)
     [h2_soc, load/ref, renewable/ref, price/0.5, grid_available,
      fuel_cell/cap, electrolyzer/cap, net_balance/ref]
   → obs_dim = 8·N + 2.
-* **Action** — a per-site block ``[el_setpoint, fc_setpoint, demand_response]``
-  in [0,1] → act_dim = 3·N.  The *inter-node flows and national-grid slack are
+* **Action** — per site ``[el_setpoint, fc_setpoint, demand_response]`` in
+  [0,1], keeping only the levers the site actually has (no electrolyzer → no
+  el slot, etc.) → act_dim ≤ 3·N.  The *inter-node flows and national-grid slack are
   resolved by the F3 network dispatch*, exactly as for the classical controller,
   so the agent learns the same lever set (local assets) and must discover the
   network-aware coordination the rule controller had to be hand-tuned for.
@@ -58,11 +59,6 @@ N_FORECAST = 3 * len(FORECAST_HORIZONS_H)  # solar, price-band, load per horizon
 def obs_dim_for_n_sites(n_sites: int) -> int:
     """Observation-space size for a network with *n_sites* nodes."""
     return N_SITE_OBS * n_sites + N_GLOBAL_OBS + N_FORECAST
-
-
-def act_dim_for_n_sites(n_sites: int) -> int:
-    """Action-space size for a network with *n_sites* nodes."""
-    return N_SITE_ACT * n_sites
 
 
 def infer_n_sites_from_obs_dim(obs_dim: int) -> Optional[int]:
@@ -191,8 +187,19 @@ class NetworkH2GridEnv(gym.Env):
         self._lon = float(np.mean([l.lon for l in locs])) if locs else 12.5
         self._alt = float(np.mean([l.alt_m for l in locs])) if locs else 50.0
 
+        # One action slot per lever the site has (el / fc / dr), in site order.
+        self._act_slots: List[Tuple[str, str]] = [
+            (sid, kind) for sid in self._site_ids
+            for kind, ids in (("el", self._el_ids[sid]), ("fc", self._fc_ids[sid]),
+                              ("dr", self._load_ids[sid]))
+            if ids
+        ]
+        # Position of each slot in the old fixed 3-per-site layout (legacy models).
+        self._legacy_idx = [self._site_ids.index(sid) * N_SITE_ACT + ("el", "fc", "dr").index(kind)
+                            for sid, kind in self._act_slots]
+
         obs_dim = N_SITE_OBS * self._n + N_GLOBAL_OBS + N_FORECAST
-        act_dim = N_SITE_ACT * self._n
+        act_dim = len(self._act_slots)
         self.observation_space = spaces.Box(-2.0, 2.0, shape=(obs_dim,), dtype=np.float32)
         self.action_space = spaces.Box(0.0, 1.0, shape=(act_dim,), dtype=np.float32)
 
@@ -247,18 +254,18 @@ class NetworkH2GridEnv(gym.Env):
     # ------------------------------------------------------------------
 
     def _decode(self, action: np.ndarray) -> Dict[str, Dict[str, Dict[str, Any]]]:
-        out: Dict[str, Dict[str, Dict[str, Any]]] = {}
-        for i, sid in enumerate(self._site_ids):
-            base = i * N_SITE_ACT
-            el_f, fc_f, dr_f = action[base], action[base + 1], action[base + 2]
-            site_act: Dict[str, Dict[str, Any]] = {}
-            for eid, rated in self._el_ids[sid]:
-                site_act[eid] = {"power_setpoint_kw": float(el_f) * rated}
-            for fid, rated in self._fc_ids[sid]:
-                site_act[fid] = {"power_setpoint_kw": float(fc_f) * rated}
-            for lid in self._load_ids[sid]:
-                site_act[lid] = {"demand_response": float(dr_f) * 0.2}
-            out[sid] = site_act
+        out: Dict[str, Dict[str, Dict[str, Any]]] = {sid: {} for sid in self._site_ids}
+        for (sid, kind), f in zip(self._act_slots, action):
+            f = float(f)
+            if kind == "el":
+                for eid, rated in self._el_ids[sid]:
+                    out[sid][eid] = {"power_setpoint_kw": f * rated}
+            elif kind == "fc":
+                for fid, rated in self._fc_ids[sid]:
+                    out[sid][fid] = {"power_setpoint_kw": f * rated}
+            else:
+                for lid in self._load_ids[sid]:
+                    out[sid][lid] = {"demand_response": f * 0.2}
         return out
 
     # ------------------------------------------------------------------

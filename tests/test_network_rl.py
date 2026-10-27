@@ -40,6 +40,19 @@ def test_spaces_shape():
     assert env.action_space.shape == (9,)
 
 
+def test_actions_only_for_existing_components():
+    # large: trapani/cagliari no FC, roma/bologna/milano no EL -> 21 - 5 = 16 slots
+    env = NetworkH2GridEnv(Scenario.from_yaml(ROOT / "config" / "italy_network_large.yaml").topology())
+    assert env.action_space.shape == (16,)
+    acts = env._decode(np.ones(16, dtype=np.float32))
+    assert not any(k.startswith("fc") for k in acts["trapani"])
+    assert sum(len(a) for a in acts.values()) == sum(
+        len(env._el_ids[s]) + len(env._fc_ids[s]) + len(env._load_ids[s]) for s in env.site_ids)
+    # legacy 3-per-site models: slot -> old index, el of trapani is 0, fc of roma is 4*3+1
+    assert env._legacy_idx[0] == 0 and (("roma", "fc") in env._act_slots)
+    assert env._legacy_idx[env._act_slots.index(("roma", "fc"))] == 13
+
+
 def test_reset_and_step():
     env = NetworkH2GridEnv(_topo())
     obs, info = env.reset(seed=1)
