@@ -200,9 +200,9 @@ class ElectrolyzerModel(BaseModel):
         h2_kg = self._power_to_h2(new_power, dt)
 
         # Stack efficiency: HHV-based
-        p_input_wh = new_power * dt / 3600.0  # Wh
-        if p_input_wh > 0 and h2_kg > 0:
-            eta_hhv = (h2_kg * HHV_H2 / 3600.0) / (p_input_wh * 1000.0 / 3600.0)  # dimensionless
+        e_input_j = new_power * 1000.0 * dt  # J
+        if e_input_j > 0 and h2_kg > 0:
+            eta_hhv = h2_kg * HHV_H2 / e_input_j  # dimensionless
         else:
             eta_hhv = 0.0
 

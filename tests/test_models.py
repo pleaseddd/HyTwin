@@ -210,6 +210,12 @@ class TestElectrolyzerModel:
         expected_kg = el_params["rated_power_kw"] * 1.0 / 33.0   # HHV approx
         assert 0.3 * expected_kg < total_h2 < 2.0 * expected_kg
 
+    def test_efficiency_reasonable(self, el_params):
+        el = ElectrolyzerModel("el", el_params)
+        state = el.step(600.0, context={"power_setpoint_kw": el_params["rated_power_kw"]})
+        eff = state.values["efficiency_hhv"]
+        assert 0.4 < eff < 0.9, f"Efficiency out of range: {eff}"
+
     def test_power_respects_rated(self, el_params):
         el = ElectrolyzerModel("el", el_params)
         state = el.step(600.0, context={"power_setpoint_kw": 1_000_000.0})
