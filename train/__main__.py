@@ -28,7 +28,6 @@ def main() -> None:
                         help="Override a NetworkRewardConfig field, e.g. --reward ref_cost_eur_step=13 (repeatable)")
     args = parser.parse_args()
     reward_kw = {k: float(v) for k, v in (kv.split("=", 1) for kv in args.reward)}
-    reward_config = NetworkRewardConfig(**reward_kw)
 
     print(f"\n{'='*60}")
     print(f"  HyTwin — Network RL Training")
@@ -39,11 +38,13 @@ def main() -> None:
     print(f"  n_steps   : {args.n_steps}")
     print(f"  Seed      : {args.seed}")
     print(f"  Device    : {args.device}")
-    print(f"  Reward    : {reward_kw or 'default'}{'  + VecNormalize' if args.normalize_reward else ''}")
+    print(f"  Reward    : {reward_kw or 'rl_reward of the config'}{'  + VecNormalize' if args.normalize_reward else ''}")
     print(f"  Save to   : {args.save}.zip")
     print(f"  Press Ctrl-C to stop early\n")
 
     topo = Scenario.from_yaml(args.config).topology()
+    # --reward overrides the network's own rl_reward block from the YAML.
+    reward_config = NetworkRewardConfig(**{**topo.rl_reward, **reward_kw})
     print(f"  Network: {len(topo.sites)} sites, {len(topo.links)} links\n")
 
     train_network_agent(

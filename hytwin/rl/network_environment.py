@@ -126,7 +126,8 @@ class NetworkRewardConfig:
     soc_target: float = 0.5
     # Typical |cost| and CO2 per step on the pilot network over random days
     # (spento/classical, 40 days: ~12-13 EUR, ~22-26 kg); 5 / 10 were tuned
-    # on a single June Saturday.  Re-measure for other topologies.
+    # on a single June Saturday.  A topology's ``rl_reward`` YAML block
+    # overrides these (see NetworkH2GridEnv).
     ref_cost_eur_step: float = 13.0
     ref_co2_kg_step: float = 25.0
     ref_curtail_kw: float = 500.0
@@ -150,7 +151,7 @@ class NetworkH2GridEnv(gym.Env):
         self._dt = float(dt_seconds)
         self._ep_len = int(episode_steps)
         self._start = start_time or datetime(2024, 6, 15, 0, 0)
-        self._rc = reward_config or NetworkRewardConfig()
+        self._rc = reward_config or NetworkRewardConfig(**topology.rl_reward)
 
         self._site_ids: List[str] = list(topology.site_ids)
         self._n = len(self._site_ids)

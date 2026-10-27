@@ -24,6 +24,14 @@ episode_steps: 144       # 24 hours per episode
 
 network:
 
+  # RL reward reference scales (NetworkRewardConfig fields) for this network:
+  # mean cost / CO2 per step with all assets off over 40 random days;
+  # curtailment saturates on ~33% of those steps. Re-measure if the network changes.
+  rl_reward:
+    ref_cost_eur_step: 13.0
+    ref_co2_kg_step: 25.0
+    ref_curtail_kw: 500.0
+
   # =====================================================================
   # SITES
   # =====================================================================

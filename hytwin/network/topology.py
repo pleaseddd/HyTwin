@@ -203,6 +203,8 @@ class NetworkTopology:
     """
     sites: Dict[str, SiteSpec] = field(default_factory=dict)
     links: Dict[str, LinkSpec] = field(default_factory=dict)
+    # NetworkRewardConfig overrides for this network (``rl_reward`` YAML block).
+    rl_reward: Dict[str, float] = field(default_factory=dict)
 
     # -- construction --------------------------------------------------
 
@@ -223,7 +225,8 @@ class NetworkTopology:
                 raise ValueError(f"Duplicate link id {link.id!r}")
             links[link.id] = link
 
-        topo = cls(sites=sites, links=links)
+        topo = cls(sites=sites, links=links,
+                   rl_reward={k: float(v) for k, v in (cfg.get("rl_reward") or {}).items()})
         topo.validate()
         topo._finalize_links()
         return topo

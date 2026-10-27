@@ -53,6 +53,12 @@ def test_actions_only_for_existing_components():
     assert env._legacy_idx[env._act_slots.index(("roma", "fc"))] == 13
 
 
+def test_reward_scales_from_topology():
+    large = Scenario.from_yaml(ROOT / "config" / "italy_network_large.yaml").topology()
+    assert NetworkH2GridEnv(large)._rc.ref_curtail_kw == 2000.0
+    assert NetworkH2GridEnv(_topo())._rc.ref_cost_eur_step == 13.0
+
+
 def test_reset_and_step():
     env = NetworkH2GridEnv(_topo())
     obs, info = env.reset(seed=1)
