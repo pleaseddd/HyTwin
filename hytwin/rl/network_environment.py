@@ -118,7 +118,10 @@ class NetworkRewardConfig:
     # this term internalises the reserve's replacement value so the policy is
     # sustainable, mirroring the ``storage_adjusted_cost`` KPI.
     w_storage_value: float = 1.0
-    h2_value_eur_per_kg: float = 4.0
+    # Grid cost a fuel cell actually saves per kg burned (measured, random
+    # days: ~0.7-1.5 €/kg large, ~1.0-2.0 €/kg pilot).  4.0 made producing H₂
+    # from the grid pay off and using it a loss, so agents hoarded H₂.
+    h2_value_eur_per_kg: float = 1.5
     # Demand response is not free: shed load is paid back to consumers at
     # ``dr_cost_eur_per_kwh``.  Without it the agent sheds load at every step.
     w_demand_response: float = 1.0
