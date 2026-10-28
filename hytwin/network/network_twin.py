@@ -221,6 +221,16 @@ class NetworkTwin:
             if tanks and fcs:
                 h2_kg = len(tanks) * min(t.soc * t.max_capacity_kg for t in tanks) / len(fcs)
                 actions = {**actions, **{f: {**actions.get(f, {}), "h2_available_kg": h2_kg} for f in fcs}}
+            # Electrolyzers may only produce what the site tanks can still take
+            # (site_charge splits evenly and silently drops the excess).
+            els = [nid for nid, n in twin.nodes.items() if isinstance(n.model, ElectrolyzerModel)]
+            if tanks and els:
+                room_kg = len(tanks) * min(min((1.0 - t.soc) * t.max_capacity_kg, t._max_in * dt) for t in tanks)
+                sp = {e: float(actions.get(e, {}).get("power_setpoint_kw", 0.0)) for e in els}
+                want_kg = sum(twin.nodes[e].model._power_to_h2(min(p, twin.nodes[e].model._rated_kw), dt) for e, p in sp.items())
+                if want_kg > room_kg:
+                    f = max(0.0, room_kg) / want_kg
+                    actions = {**actions, **{e: {**actions.get(e, {}), "power_setpoint_kw": f * p} for e, p in sp.items()}}
             readings = None
             mgr = self._sensor_mgrs.get(sid)
             if mgr is not None:

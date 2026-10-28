@@ -59,6 +59,16 @@ def test_reward_scales_from_topology():
     assert NetworkH2GridEnv(_topo())._rc.ref_cost_eur_step == 13.0
 
 
+def test_electrolyzers_stop_when_tanks_full():
+    env = NetworkH2GridEnv(_topo())
+    env.reset(seed=0)
+    for tanks in env._twin._tanks_by_site.values():
+        for t in tanks:
+            t._n = t._n_max
+    _, _, _, _, info = env.step(np.ones(env.action_space.shape, dtype=np.float32))
+    assert all(n.electrolyzer_kw == 0.0 for n in info["network_state"].nodes.values())
+
+
 def test_reset_and_step():
     env = NetworkH2GridEnv(_topo())
     obs, info = env.reset(seed=1)
