@@ -26,6 +26,8 @@ def main() -> None:
     parser.add_argument("--normalize-reward", action="store_true",   help="Normalise rewards with VecNormalize")
     parser.add_argument("--reward", action="append", default=[], metavar="KEY=VALUE",
                         help="Override a NetworkRewardConfig field, e.g. --reward ref_cost_eur_step=13 (repeatable)")
+    parser.add_argument("--forecast", choices=["none", "noisy", "perfect"], default="none",
+                        help="Per-site 0-48 h forecasts in the observation (default: none)")
     args = parser.parse_args()
     reward_kw = {k: float(v) for k, v in (kv.split("=", 1) for kv in args.reward)}
 
@@ -39,6 +41,7 @@ def main() -> None:
     print(f"  Seed      : {args.seed}")
     print(f"  Device    : {args.device}")
     print(f"  Reward    : {reward_kw or 'rl_reward of the config'}{'  + VecNormalize' if args.normalize_reward else ''}")
+    print(f"  Forecast  : {args.forecast}")
     print(f"  Save to   : {args.save}.zip")
     print(f"  Press Ctrl-C to stop early\n")
 
@@ -58,6 +61,7 @@ def main() -> None:
         verbose=args.verbose,
         reward_config=reward_config,
         normalize_reward=args.normalize_reward,
+        forecast=args.forecast,
     )
     print(f"\n  Modello salvato → {args.save}.zip")
     print(f"{'='*60}\n")

@@ -10,7 +10,9 @@ Design (per-node factored, see docs/08_network_layer_plan.md §8)
   plus two global time features.  Per-site block (8 features):
     [h2_soc, load/ref, renewable/ref, price/0.5, grid_available,
      fuel_cell/cap, electrolyzer/cap, net_balance/ref]
-  → obs_dim = 8·N + 2.
+  → obs_dim = 8·N + 2 (+ 6 network look-ahead features).  ``forecast="noisy"``
+  or ``"perfect"`` appends 9 features per site: mean renewable, load and price
+  over the next 0-6 h, 6-24 h and 24-48 h (see ``FORECAST_WINDOWS_H``).
 * **Action** — per site ``[el_setpoint, fc_setpoint, demand_response]`` in
   [0,1], keeping only the levers the site actually has (no electrolyzer → no
   el slot, etc.) → act_dim ≤ 3·N.  The *inter-node flows and national-grid slack are
@@ -43,7 +45,7 @@ from ..network.network_twin import NetworkTwin
 from ..network.network_state import NetworkState
 from ..network.dispatch import site_soc
 from ..models import (
-    ElectrolyzerModel, FuelCellModel, EnergyLoadModel,
+    ElectrolyzerModel, FuelCellModel, EnergyLoadModel, PhotovoltaicModel, WindTurbineModel,
 )
 from .forecast_utils import _solar_elevation_deg, _ghi_clear_sky
 
@@ -54,6 +56,17 @@ N_SITE_ACT = 3
 N_GLOBAL_OBS = 2
 FORECAST_HORIZONS_H = (1.0, 3.0)          # look-ahead horizons [hours]
 N_FORECAST = 3 * len(FORECAST_HORIZONS_H)  # solar, price-band, load per horizon
+
+# Optional multi-day look-ahead per site (forecast="noisy" / "perfect"): mean
+# renewable, load and price over each window, read from a shadow copy of the
+# weather / price / load / PV / wind models (they do not depend on actions).
+FORECAST_WINDOWS_H = ((0, 6), (6, 24), (24, 48))
+# Relative error (1 sigma) per window for renewable, load, price; it drifts
+# slowly (AR(1), FORECAST_ERR_TAU_H) like a real forecast instead of white noise.
+# ponytail: rough day-ahead magnitudes, calibrate against real forecast errors if available.
+FORECAST_ERR = np.array([[0.05, 0.02, 0.05], [0.15, 0.05, 0.10], [0.25, 0.08, 0.15]])
+FORECAST_ERR_TAU_H = 6.0
+N_SITE_FORECAST = 3 * len(FORECAST_WINDOWS_H)
 
 
 def obs_dim_for_n_sites(n_sites: int) -> int:
@@ -94,6 +107,42 @@ def _load_diurnal_factor(ts: datetime) -> float:
     h = ts.hour + ts.minute / 60.0
     hump = max(0.0, np.sin(np.pi * (h - 6.0) / 14.0)) if 6.0 <= h <= 20.0 else 0.0
     return float(0.62 + 0.38 * hump)
+
+
+class _ExogShadow:
+    """Copy of a twin's exogenous models (weather, price, load, PV, wind) stepped on its own."""
+
+    def __init__(self, twin: NetworkTwin) -> None:
+        import copy
+        self._weather = copy.deepcopy(twin._weather)
+        self._sites = {
+            sid: (copy.deepcopy(gt._cost_model),
+                  copy.deepcopy([n.model for n in gt._nodes.values()
+                                 if isinstance(n.model, (PhotovoltaicModel, WindTurbineModel, EnergyLoadModel))]))
+            for sid, gt in twin._sites.items()
+        }
+
+    def step(self, dt: float, ts: datetime) -> Dict[str, Tuple[float, float, float]]:
+        """(renewable_kw, load_kw before DR, price €/kWh) per site, as in GridTwin.step."""
+        weather = self._weather.step(ts)
+        out = {}
+        for sid, (cost, models) in self._sites.items():
+            wx = weather[sid]
+            if cost is not None:
+                cf = (0.5 * min(1.0, max(0.0, wx.get("ghi_wm2", 0.0)) / 850.0)
+                      + 0.5 * min(1.0, max(0.0, wx.get("wind_speed_ms", 0.0)) / 11.0))
+                cost.step(ts, dt, renewable_cf=cf)
+            ren = load = 0.0
+            for m in models:
+                v = m.step(dt, {**wx, "timestamp": ts}).values
+                if isinstance(m, PhotovoltaicModel):
+                    ren += v.get("power_ac_kw", 0.0)
+                elif isinstance(m, WindTurbineModel):
+                    ren += v.get("power_kw", 0.0)
+                else:
+                    load += v.get("load_kw", 0.0)
+            out[sid] = (ren, load, cost.get_buy_price(ts) if cost is not None else 0.15)
+        return out
 
 
 @dataclass
@@ -148,8 +197,12 @@ class NetworkH2GridEnv(gym.Env):
         episode_steps: int = 144,
         start_time: Optional[datetime] = None,
         reward_config: Optional[NetworkRewardConfig] = None,
+        forecast: str = "none",
     ) -> None:
         super().__init__()
+        if forecast not in ("none", "noisy", "perfect"):
+            raise ValueError(f"forecast must be none, noisy or perfect, not {forecast!r}")
+        self._forecast = forecast
         self._topo = topology
         self._dt = float(dt_seconds)
         self._ep_len = int(episode_steps)
@@ -203,6 +256,8 @@ class NetworkH2GridEnv(gym.Env):
                             for sid, kind in self._act_slots]
 
         obs_dim = N_SITE_OBS * self._n + N_GLOBAL_OBS + N_FORECAST
+        if forecast != "none":
+            obs_dim += N_SITE_FORECAST * self._n
         act_dim = len(self._act_slots)
         self.observation_space = spaces.Box(-2.0, 2.0, shape=(obs_dim,), dtype=np.float32)
         self.action_space = spaces.Box(0.0, 1.0, shape=(act_dim,), dtype=np.float32)
@@ -236,6 +291,13 @@ class NetworkH2GridEnv(gym.Env):
         self._step_count = 0
         self._last_state = None
         self._prev_h2_total = self._total_h2()
+        if self._forecast != "none":
+            # Drawn after the twin seed and start day, so those stay the same as with forecast="none".
+            self._fc_rng = np.random.default_rng(int(self.np_random.integers(0, 2**31 - 1)))
+            self._fc_err = self._fc_rng.normal(size=(len(FORECAST_WINDOWS_H), self._n, 3))
+            self._shadow = _ExogShadow(self._twin)
+            self._fut: List[np.ndarray] = []
+            self._fut_t0 = self._ts
         return self._observe_cold(), {}
 
     def step(self, action: np.ndarray):
@@ -284,7 +346,28 @@ class NetworkH2GridEnv(gym.Env):
             feats += [soc, 0.0, 0.0, 0.30 / 0.5, 1.0, 0.0, 0.0, 0.0]
         feats += self._time_feats(self._ts)
         feats += self._forecast_feats(self._ts)
+        feats += self._site_forecast_feats()
         return np.clip(np.array(feats, dtype=np.float32), -2.0, 2.0)
+
+    def _site_forecast_feats(self) -> List[float]:
+        """Per site, mean renewable/ref, load/ref and price/0.5 over each FORECAST_WINDOWS_H window."""
+        if self._forecast == "none":
+            return []
+        per_h = 3600.0 / self._dt
+        c = self._step_count                      # index of the next step
+        need = c + int(FORECAST_WINDOWS_H[-1][1] * per_h)
+        while len(self._fut) < need:
+            k = len(self._fut)
+            v = self._shadow.step(self._dt, self._fut_t0 + timedelta(seconds=self._dt * k))
+            self._fut.append(np.array([[v[s][0] / self._renew_ref[s], v[s][1] / self._load_ref[s], v[s][2] / 0.5]
+                                       for s in self._site_ids]))
+        fut = np.array(self._fut[c:need])          # (steps, sites, 3)
+        win = np.stack([fut[int(a * per_h):int(b * per_h)].mean(axis=0) for a, b in FORECAST_WINDOWS_H])
+        if self._forecast == "noisy":
+            phi = np.exp(-self._dt / (FORECAST_ERR_TAU_H * 3600.0))
+            self._fc_err = phi * self._fc_err + np.sqrt(1 - phi ** 2) * self._fc_rng.normal(size=self._fc_err.shape)
+            win = np.maximum(0.0, win * (1.0 + FORECAST_ERR[:, None, :] * self._fc_err))
+        return win.transpose(1, 0, 2).reshape(-1).tolist()    # site-major: window × (ren, load, price)
 
     def _forecast_feats(self, ts: datetime) -> List[float]:
         """
@@ -322,6 +405,7 @@ class NetworkH2GridEnv(gym.Env):
             ]
         feats += self._time_feats(ns.timestamp)
         feats += self._forecast_feats(ns.timestamp)
+        feats += self._site_forecast_feats()
         return np.clip(np.array(feats, dtype=np.float32), -2.0, 2.0)
 
     @staticmethod

@@ -69,6 +69,25 @@ def test_electrolyzers_stop_when_tanks_full():
     assert all(n.electrolyzer_kw == 0.0 for n in info["network_state"].nodes.values())
 
 
+def test_site_forecast_matches_future():
+    topo = _topo()
+    envs = {f: NetworkH2GridEnv(topo, forecast=f) for f in ("none", "perfect", "noisy")}
+    obs = {f: e.reset(seed=3)[0] for f, e in envs.items()}
+    n = len(topo.site_ids)
+    assert obs["perfect"].shape == (32 + 9 * n,)
+    assert envs["perfect"]._ts == envs["none"]._ts           # same start day as without forecasts
+    env = envs["perfect"]
+    fc = obs["perfect"][-9 * n:].reshape(n, 3, 3)           # site, window, (ren, load, price)
+    zero = np.zeros(env.action_space.shape, dtype=np.float32)
+    seen = [env.step(zero)[4]["network_state"].nodes for _ in range(36)]
+    for i, sid in enumerate(env.site_ids):
+        load = np.mean([s[sid].load_kw for s in seen]) / env._load_ref[sid]
+        price = np.mean([s[sid].price_eur_kwh for s in seen]) / 0.5
+        assert fc[i, 0, 1] == pytest.approx(load, rel=1e-5)
+        assert fc[i, 0, 2] == pytest.approx(price, rel=1e-5)
+    assert not np.allclose(obs["noisy"][-9 * n:], obs["perfect"][-9 * n:])
+
+
 def test_reset_and_step():
     env = NetworkH2GridEnv(_topo())
     obs, info = env.reset(seed=1)

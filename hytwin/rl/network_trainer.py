@@ -30,10 +30,11 @@ logger = logging.getLogger(__name__)
 
 
 def make_env(topology, dt_seconds: float = 600.0, episode_steps: int = 144,
-             reward_config: Optional[NetworkRewardConfig] = None) -> NetworkH2GridEnv:
+             reward_config: Optional[NetworkRewardConfig] = None,
+             forecast: str = "none") -> NetworkH2GridEnv:
     return NetworkH2GridEnv(
         topology, dt_seconds=dt_seconds, episode_steps=episode_steps,
-        reward_config=reward_config,
+        reward_config=reward_config, forecast=forecast,
     )
 
 
@@ -53,6 +54,7 @@ def train_network_agent(
     normalize_reward: bool = False,
     eval_every: int = 25_000,
     eval_seeds=range(900, 910),
+    forecast: str = "none",
 ):
     """
     Train a PPO agent on the network env.  Returns the trained model.
@@ -80,6 +82,9 @@ def train_network_agent(
     device : str
         PyTorch device string passed to SB3 (default ``"auto"`` → CUDA if
         available, else CPU).
+    forecast : str
+        ``"none"`` (default), ``"noisy"`` or ``"perfect"``: per-site multi-day
+        forecasts in the observation (see :class:`NetworkH2GridEnv`).
     callback : stable_baselines3.common.callbacks.BaseCallback, optional
         Passed through to ``model.learn()`` — used by the dashboard's
         ``TrainingWorker`` to report live progress and to abort early
@@ -96,11 +101,11 @@ def train_network_agent(
     n_envs = max(1, int(n_envs))
 
     if n_envs == 1:
-        env = Monitor(make_env(topology, dt_seconds, episode_steps, reward_config))
+        env = Monitor(make_env(topology, dt_seconds, episode_steps, reward_config, forecast))
     else:
         def _make_factory(i: int):
             def _factory():
-                e = make_env(topology, dt_seconds, episode_steps, reward_config)
+                e = make_env(topology, dt_seconds, episode_steps, reward_config, forecast)
                 e.reset(seed=seed + i)
                 return Monitor(e)
             return _factory
@@ -129,7 +134,7 @@ def train_network_agent(
 
     # Build final callback list: optional dashboard callback + best-model saver
     # ._inner: SB3 requires a real BaseCallback, not the delegating wrapper
-    best_cb = (_eval_best_callback(BaseCallback, make_env(topology, dt_seconds, episode_steps, reward_config),
+    best_cb = (_eval_best_callback(BaseCallback, make_env(topology, dt_seconds, episode_steps, reward_config, forecast),
                                    save_path, list(eval_seeds), max(1, eval_every // n_envs))
                if save_path else None)
     cbs = [c for c in [callback, best_cb] if c is not None]
