@@ -266,6 +266,16 @@ class TestFuelCellModel:
         eff = state.values.get("efficiency_lhv", 0.0)
         assert 0.3 < eff < 0.85, f"Efficiency out of range: {eff}"
 
+    def test_air_temperature_does_not_set_stack_temperature(self, fc_params, el_params):
+        # the weather passes the air temperature as "temperature_c"; stacks run at their operating temperature
+        for cls, params, key in ((FuelCellModel, fc_params, "h2_consumed_kg_step"), (ElectrolyzerModel, el_params, "h2_kg_step")):
+            out = []
+            for air in (0.0, 30.0):
+                m = cls("u", params)
+                ctx = {"power_setpoint_kw": params["rated_power_kw"] * 0.5, "h2_available_kg": 100.0, "temperature_c": air}
+                out.append(m.step(600.0, context=ctx).values[key])
+            assert out[0] == pytest.approx(out[1], rel=1e-9), cls.__name__
+
 
 # ===========================================================================
 # Hydrogen tank

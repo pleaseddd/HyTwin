@@ -17,8 +17,7 @@ flow each way (with its loss).  Objective = grid cost + DR cost + VoLL·unmet
 Linearisation (measured on the simulator's own models, see Task 3 notes):
 the electrolyzer H2(P) curve is replaced by its upper concave envelope over
 the points where the model's Newton solve converged, the fuel-cell H2(P)
-curve by its lower convex envelope at the step's air temperature (the models
-use it as cell temperature).  Minimum-load and on/off are relaxed, ramp limits
+curve by its lower convex envelope (both at the units' operating temperature).  Minimum-load and on/off are relaxed, ramp limits
 never bind at 10-minute steps, so the LP is slightly optimistic.
 """
 
@@ -52,10 +51,9 @@ def _hull(p: np.ndarray, h: np.ndarray, upper: bool):
     return [(s, y1 - s * x1) for s, (x1, y1) in zip(a, pts)]
 
 
-def _unit_curve(model, dt: float, temp_c: float, n: int = 120):
+def _unit_curve(model, dt: float, n: int = 120):
     """(P [kW], H2 [kg/step]) for one unit, only points where the solve is consistent."""
     m = copy.deepcopy(model)
-    m._T_op = temp_c + 273.15
     P = np.linspace(0.0, m._rated_kw, n)
     if isinstance(m, ElectrolyzerModel):
         h = np.array([m._power_to_h2(x, dt) for x in P])
@@ -131,7 +129,7 @@ def solve_episode(env, steps: int, h2_value: float = 1.5, dr_cost: float = 0.20,
     S, T = len(sites), steps
     sh = _ExogShadow(twin)
     ex = np.array([[sh.step(dt, env._ts + timedelta(seconds=dt * t))[s] for s in sites] for t in range(T)])
-    ren, load, buy, sell, temp, avail = (ex[:, :, k] for k in range(6))   # (T, S)
+    ren, load, buy, sell, _, avail = (ex[:, :, k] for k in range(6))   # (T, S)
 
     units = {s: [n.model for n in twin._sites[s]._nodes.values()] for s in sites}
     els = {s: [m for m in units[s] if isinstance(m, ElectrolyzerModel)] for s in sites}
@@ -173,18 +171,16 @@ def solve_episode(env, steps: int, h2_value: float = 1.5, dr_cost: float = 0.20,
         fa[l.id] = V.add((T,), ub=lm._max_kw)
         fb[l.id] = V.add((T,), ub=lm._max_kw if lm._bidirectional else 0.0)
 
-    # electrolyzer: H2 <= n·f(P/n) (upper envelope); fuel cell: H2 >= n·g(P/n) at the step's temperature
+    # electrolyzer: H2 <= n·f(P/n) (upper envelope); fuel cell: H2 >= n·g(P/n)
     for j, s in enumerate(sites):
         if els[s]:
             n = len(els[s])
-            for a, b in _hull(*_unit_curve(els[s][0], dt, 15.0), upper=True):
+            for a, b in _hull(*_unit_curve(els[s][0], dt), upper=True):
                 A_ub.add([(hel[:, j], 1.0), (pel[:, j], -a)], np.full(T, n * b))
         if fcs[s]:
             n = len(fcs[s])
-            for tc in np.unique(np.round(temp[:, j])):
-                rows = np.where(np.round(temp[:, j]) == tc)[0]
-                for a, b in _hull(*_unit_curve(fcs[s][0], dt, float(tc)), upper=False):
-                    A_ub.add([(pfc[rows, j], a), (hfc[rows, j], -1.0)], np.full(len(rows), -n * b))
+            for a, b in _hull(*_unit_curve(fcs[s][0], dt), upper=False):
+                A_ub.add([(pfc[:, j], a), (hfc[:, j], -1.0)], np.full(T, -n * b))
 
     # electric balance per site and step
     for j, s in enumerate(sites):

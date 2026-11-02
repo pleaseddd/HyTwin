@@ -181,11 +181,10 @@ class ElectrolyzerModel(BaseModel):
         ----------
         context keys:
           power_setpoint_kw : float — power setpoint from controller
-          temperature_c : float     — optional temperature override
         """
         setpoint = float(context.get("power_setpoint_kw", 0.0))
-        if "temperature_c" in context:
-            self._T_op = float(context["temperature_c"]) + 273.15
+        # context["temperature_c"] is the AIR temperature from the weather: the stack runs at the
+        # regulated operating temperature of its parameters (docs/02_physical_models.md)
         ts = context.get("timestamp", datetime.utcnow())
 
         # Ramp-rate limiting
