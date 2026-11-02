@@ -278,7 +278,7 @@ launching the dashboard.
 python -m dashboard --speed-factor 30          # http://localhost:8060
 
 # RL training (CLI)
-python -m train                                # 2M steps, 4 parallel envs
+python -m train                                # 200k steps (quick run; ~2M for real training on the large network), 4 parallel envs
 python -m train --timesteps 500000 --n-envs 4 # longer run
 python -m train --help                         # full option list
 

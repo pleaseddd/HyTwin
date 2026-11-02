@@ -77,7 +77,7 @@ not tied to the browser session:
 ### CLI — recommended for real training runs
 
 ```bash
-# default: 2M steps (~1-2 h on 4 cores), 4 parallel envs, saves to output/rl_models/net_ppo_large.zip
+# default: 200k steps (quick run; the large network needs about 2M, ~1-2 h on 4 cores), 4 parallel envs, saves to output/rl_models/net_ppo_large.zip
 python -m train
 
 # full options

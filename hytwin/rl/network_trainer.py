@@ -40,7 +40,7 @@ def make_env(topology, dt_seconds: float = 600.0, episode_steps: int = 144,
 
 def train_network_agent(
     topology,
-    timesteps: int = 2_000_000,
+    timesteps: int = 100_000,
     dt_seconds: float = 600.0,
     episode_steps: int = 144,
     save_path: Optional[str] = None,
