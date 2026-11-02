@@ -46,6 +46,7 @@ from ..network.network_state import NetworkState
 from ..network.dispatch import site_soc
 from ..models import (
     ElectrolyzerModel, FuelCellModel, EnergyLoadModel, PhotovoltaicModel, WindTurbineModel,
+    GridConnectionModel,
 )
 from .forecast_utils import _solar_elevation_deg, _ghi_clear_sky
 
@@ -110,7 +111,7 @@ def _load_diurnal_factor(ts: datetime) -> float:
 
 
 class _ExogShadow:
-    """Copy of a twin's exogenous models (weather, price, load, PV, wind) stepped on its own."""
+    """Copy of a twin's exogenous models (weather, price, load, PV, wind, grid outages) stepped on its own."""
 
     def __init__(self, twin: NetworkTwin) -> None:
         import copy
@@ -118,12 +119,14 @@ class _ExogShadow:
         self._sites = {
             sid: (copy.deepcopy(gt._cost_model),
                   copy.deepcopy([n.model for n in gt._nodes.values()
-                                 if isinstance(n.model, (PhotovoltaicModel, WindTurbineModel, EnergyLoadModel))]))
+                                 if isinstance(n.model, (PhotovoltaicModel, WindTurbineModel, EnergyLoadModel,
+                                                         GridConnectionModel))]))
             for sid, gt in twin._sites.items()
         }
 
-    def step(self, dt: float, ts: datetime) -> Dict[str, Tuple[float, float, float]]:
-        """(renewable_kw, load_kw before DR, price €/kWh) per site, as in GridTwin.step."""
+    def step(self, dt: float, ts: datetime) -> Dict[str, Tuple[float, ...]]:
+        """(renewable_kw, load_kw before DR, buy price, sell price €/kWh, air temperature °C,
+        grid available 0/1) per site, as in GridTwin.step."""
         weather = self._weather.step(ts)
         out = {}
         for sid, (cost, models) in self._sites.items():
@@ -133,15 +136,20 @@ class _ExogShadow:
                       + 0.5 * min(1.0, max(0.0, wx.get("wind_speed_ms", 0.0)) / 11.0))
                 cost.step(ts, dt, renewable_cf=cf)
             ren = load = 0.0
+            grid = []
             for m in models:
                 v = m.step(dt, {**wx, "timestamp": ts}).values
                 if isinstance(m, PhotovoltaicModel):
                     ren += v.get("power_ac_kw", 0.0)
                 elif isinstance(m, WindTurbineModel):
                     ren += v.get("power_kw", 0.0)
+                elif isinstance(m, GridConnectionModel):
+                    grid.append(m.available)
                 else:
                     load += v.get("load_kw", 0.0)
-            out[sid] = (ren, load, cost.get_buy_price(ts) if cost is not None else 0.15)
+            price = cost.get_buy_price(ts) if cost is not None else 0.15
+            sell = cost.get_sell_price(ts) if cost is not None else price * 0.28
+            out[sid] = (ren, load, price, sell, wx.get("temperature_c", 15.0), float(any(grid)))
         return out
 
 

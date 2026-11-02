@@ -138,7 +138,7 @@ defaults, no boilerplate. Key flags:
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--timesteps` | 200 000 | total environment steps |
+| `--timesteps` | 2 000 000 | total environment steps (large network: 0.5M are still worse than the classical controller over 30 days, 2M beat it) |
 | `--n-envs` | 4 | parallel `SubprocVecEnv` workers (one per CPU core) |
 | `--n-steps` | 576 | PPO rollout length per env |
 | `--seed` | 0 | RNG seed |

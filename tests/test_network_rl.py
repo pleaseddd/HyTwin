@@ -88,6 +88,17 @@ def test_site_forecast_matches_future():
     assert not np.allclose(obs["noisy"][-9 * n:], obs["perfect"][-9 * n:])
 
 
+def test_lp_benchmark_pilot():
+    from hytwin.network.lp_benchmark import solve_episode
+    env = NetworkH2GridEnv(_topo())
+    env.reset(seed=5)
+    free = solve_episode(env, 24)
+    nb = solve_episode(env, 24, lines_mode="neighbour")
+    assert free["status"] == 0 and nb["status"] == 0
+    assert nb["objective"] >= free["objective"] - 1e-6       # no transit can only cost more
+    assert free["actions"].shape == (24, env.action_space.shape[0])
+
+
 def test_reset_and_step():
     env = NetworkH2GridEnv(_topo())
     obs, info = env.reset(seed=1)

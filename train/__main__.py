@@ -16,7 +16,7 @@ DEFAULT_SAVE   = str(ROOT / "output" / "rl_models" / "net_ppo_large")
 def main() -> None:
     parser = argparse.ArgumentParser(description="HyTwin — Network RL Trainer (PPO)")
     parser.add_argument("--config",     default=DEFAULT_CONFIG, help="Network scenario YAML")
-    parser.add_argument("--timesteps",  type=int,   default=200_000, help="Training timesteps (default: 200000)")
+    parser.add_argument("--timesteps",  type=int,   default=2_000_000, help="Training timesteps (default: 2000000; on the large network fewer are not enough to beat the classical controller over 30 days)")
     parser.add_argument("--n-envs",     type=int,   default=4,       help="Parallel environments (default: 4)")
     parser.add_argument("--n-steps",    type=int,   default=576,     help="Rollout steps per env (default: 576)")
     parser.add_argument("--seed",       type=int,   default=0,       help="Random seed (default: 0)")
