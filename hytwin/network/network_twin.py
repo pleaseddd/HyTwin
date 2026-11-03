@@ -247,8 +247,9 @@ class NetworkTwin:
         gen: Dict[str, float] = {}
         dem: Dict[str, float] = {}
         for sid, gs in gs_by_site.items():
-            g = gs.wind_power_kw + gs.pv_power_kw + gs.fuel_cell_power_kw
-            d = gs.load_kw + gs.electrolyzer_power_kw
+            p = gs.physical          # actual flows; the fused view only informs the controllers
+            g = p["wind_power_kw"] + p["pv_power_kw"] + p["fuel_cell_power_kw"]
+            d = p["load_kw"] + p["electrolyzer_power_kw"]
             gen[sid], dem[sid], net[sid] = g, d, g - d
 
         # 5. H2 pipeline dispatch (mutates tanks, steps pipes).
@@ -317,6 +318,10 @@ class NetworkTwin:
                 step_cost_eur=step_cost,
                 step_co2_kg=step_co2,
                 grid_state=gs,
+                physical={"renewable_kw": gs.physical["wind_power_kw"] + gs.physical["pv_power_kw"],
+                          "fuel_cell_kw": gs.physical["fuel_cell_power_kw"],
+                          "load_kw": gs.physical["load_kw"],
+                          "electrolyzer_kw": gs.physical["electrolyzer_power_kw"]},
             )
 
         self._cumulative_cost += total_cost
@@ -339,8 +344,8 @@ class NetworkTwin:
         if not tanks:
             return
         dt_h = dt / 3600.0
-        produced_kg = gs.h2_production_kg_h * dt_h
-        consumed_kg = gs.h2_consumption_kg_h * dt_h
+        produced_kg = gs.physical["h2_production_kg_h"] * dt_h      # what the stacks actually made / used
+        consumed_kg = gs.physical["h2_consumption_kg_h"] * dt_h
         site_charge(tanks, produced_kg, dt)
         site_discharge(tanks, consumed_kg, dt)
 
@@ -363,8 +368,8 @@ class NetworkTwin:
         return actions
 
     def _assemble_network_state(self, ts, nodes, links, total_cost, total_co2) -> NetworkState:
-        total_load = sum(n.load_kw for n in nodes.values())
-        total_renew = sum(n.renewable_kw for n in nodes.values())
+        total_load = sum(n.physical.get("load_kw", n.load_kw) for n in nodes.values())
+        total_renew = sum(n.physical.get("renewable_kw", n.renewable_kw) for n in nodes.values())
         total_gen = sum(n.generation_kw for n in nodes.values())
         total_import = sum(n.grid_import_kw for n in nodes.values())
         total_export = sum(n.grid_export_kw for n in nodes.values())

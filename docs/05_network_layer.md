@@ -135,7 +135,9 @@ across links.
 2. for each site:  GridTwin.step(dt, weather[site], actions[site])
       → local production/consumption, local H2 SOC, local surplus/deficit
 3. dispatch_electric_lines(...) / dispatch_h2_pipelines(...)  (hytwin/network/dispatch.py)
-      • each site's net_balance = generation − demand
+      • each site's net_balance = generation − demand, from the models' actual
+        values (GridState.physical); the sensor-fused view, one step late, is
+        only what the controllers observe (NodeState renewable/FC/EL/load)
       • surplus/deficit routed across links, respecting capacity,
         resistive/compression losses, and availability
       • unresolved residual → that site's own GridConnectionModel

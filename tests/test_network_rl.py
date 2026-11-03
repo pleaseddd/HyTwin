@@ -135,6 +135,27 @@ def test_env_balance_closes():
             assert abs(supply - sink) < 1e-6
 
 
+def test_balance_and_tanks_use_physical_values():
+    """Sensors (one step late) only inform the controller: switching a fuel cell off must not
+    leave phantom power in the balance or phantom H2 drawn from the tanks."""
+    env = NetworkH2GridEnv(_topo())
+    env.reset(seed=3)
+    fc = [k for k, (_, kind) in enumerate(env._act_slots) if kind == "fc"]
+    on = -np.ones(env.action_space.shape, dtype=np.float32); on[fc] = 1.0
+    off = -np.ones(env.action_space.shape, dtype=np.float32)
+    for a in (on, on, off):
+        ns = env.step(a)[4]["network_state"]
+        for sid, n in ns.nodes.items():
+            p = n.physical
+            assert n.generation_kw == pytest.approx(p["renewable_kw"] + p["fuel_cell_kw"])
+            assert n.demand_kw == pytest.approx(p["load_kw"] + p["electrolyzer_kw"] + n.compressor_load_kw)
+    sids = {s for s, _ in (env._act_slots[k] for k in fc)}
+    for sid in sids:
+        assert ns.nodes[sid].physical["fuel_cell_kw"] == 0.0          # switched off: nothing produced, nothing booked
+        gs = ns.nodes[sid].grid_state
+        assert gs.physical["h2_consumption_kg_h"] == 0.0
+
+
 def test_reproducible_reset_seed():
     env = NetworkH2GridEnv(_topo())
     env.reset(seed=7); a = env.step(np.zeros(9, dtype=np.float32))[1]

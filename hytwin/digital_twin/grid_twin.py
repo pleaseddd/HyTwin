@@ -67,6 +67,11 @@ class GridState:
     # Health / anomaly
     overall_health: float = 1.0
     anomaly_nodes: List[str] = field(default_factory=list)
+    # The power / H2 fields above are the twin's view (model fused with the sensor
+    # readings, which lag one step): what a controller can know.  ``physical`` holds the
+    # same quantities straight from the models, i.e. what actually flows; the network
+    # balance, the tanks and the costs use these.
+    physical: Dict[str, float] = field(default_factory=dict)
 
 
 class GridTwin:
@@ -211,6 +216,8 @@ class GridTwin:
         h2_pressure = 0.0
         _h2_tank_count = 0
         health_scores = []
+        phys = dict.fromkeys(("wind_power_kw", "pv_power_kw", "electrolyzer_power_kw",
+                              "fuel_cell_power_kw", "load_kw", "h2_kg", "h2_consumed_kg"), 0.0)
 
         # Advance cost model — feed it a renewable-favorability proxy (GHI +
         # wind speed, both already available from the weather context, no
@@ -256,6 +263,20 @@ class GridTwin:
             # Update central state manager
             for k, v in model_state.values.items():
                 self._sm.set(f"{node_id}.{k}", v, ts)
+
+            mv = model_state.values
+            if isinstance(node.model, WindTurbineModel):
+                phys["wind_power_kw"] += mv.get("power_kw", 0.0)
+            elif isinstance(node.model, PhotovoltaicModel):
+                phys["pv_power_kw"] += mv.get("power_ac_kw", 0.0)
+            elif isinstance(node.model, ElectrolyzerModel):
+                phys["electrolyzer_power_kw"] += mv.get("power_kw", 0.0)
+                phys["h2_kg"] += mv.get("h2_kg_step", 0.0)
+            elif isinstance(node.model, FuelCellModel):
+                phys["fuel_cell_power_kw"] += mv.get("power_kw", 0.0)
+                phys["h2_consumed_kg"] += mv.get("h2_consumed_kg_step", 0.0)
+            elif isinstance(node.model, EnergyLoadModel):
+                phys["load_kw"] += mv.get("load_kw", 0.0)
 
             # Aggregate KPIs
             v = twin_state.fused_values
@@ -333,6 +354,9 @@ class GridTwin:
             system_efficiency=min(1.0, efficiency),
             overall_health=overall_health,
             anomaly_nodes=anomaly_nodes,
+            physical={**{k: v for k, v in phys.items() if k.endswith("_kw")},
+                      "h2_production_kg_h": phys["h2_kg"] * 3600.0 / dt if dt > 0 else 0.0,
+                      "h2_consumption_kg_h": phys["h2_consumed_kg"] * 3600.0 / dt if dt > 0 else 0.0},
         )
 
         self._current_grid_state = gs

@@ -26,7 +26,9 @@ class NodeState:
     site_id: str
     timestamp: datetime
 
-    # Electric balance [kW]
+    # Electric balance [kW].  renewable / fuel cell / load / electrolyzer are the twin's
+    # measured (sensor-fused) view that controllers observe; ``physical`` has the actual
+    # values, which generation_kw / demand_kw, the dispatch and the costs are based on.
     renewable_kw: float = 0.0
     fuel_cell_kw: float = 0.0
     load_kw: float = 0.0
@@ -59,6 +61,7 @@ class NodeState:
 
     # Underlying single-site grid state (for dashboard / drill-down reuse)
     grid_state: Any = None
+    physical: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
