@@ -385,3 +385,16 @@ def test_objective_terms_match_env_reward():
     terms = _objective_terms(info["network_state"], topo)
     for k in ("cost", "co2", "unmet", "curtailment", "soc"):
         assert terms[k] == pytest.approx(info["reward_terms"][k], abs=1e-3), k
+
+
+def test_auto_discovery_skips_models_of_other_networks(tmp_path, monkeypatch):
+    """A missing model path falls back to the most-trained model of THIS network, not any .zip."""
+    import dashboard.network_app as na
+    for name in ("big_other_net", "small_this_net"):
+        (tmp_path / f"{name}.zip").write_bytes(b"x")
+    dims = {"big_other_net.zip": 59, "small_this_net.zip": 64}
+    steps = {"big_other_net.zip": 9_000_000, "small_this_net.zip": 1_000}
+    monkeypatch.setattr(na, "_model_dims", lambda p, meta: (dims[p.name], None))
+    monkeypatch.setattr(na, "_read_model_steps", lambda p: steps[p.name])
+    got = na._resolve_rl_model(str(tmp_path / "missing"), 64)
+    assert got.endswith("small_this_net")

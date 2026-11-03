@@ -55,13 +55,17 @@ def _read_model_steps(p: Path) -> int:
     return 0
 
 
-def _resolve_rl_model(path: str) -> str:
+def _resolve_rl_model(path: str, expected_obs_dim: Optional[int] = None) -> str:
     """Return *path* if the .zip exists; otherwise auto-discover the model with
-    the highest number of training steps in the same directory."""
+    the highest number of training steps in the same directory, among the
+    models built for this network when *expected_obs_dim* is given."""
     if Path(str(path) + ".zip").exists():
         return path
     model_dir = Path(path).parent
     candidates = list(model_dir.glob("*.zip"))
+    if expected_obs_dim is not None:
+        candidates = [c for c in candidates
+                      if (d := _model_dims(c, {})[0]) is not None and _obs_compatible(d, expected_obs_dim)]
     if not candidates:
         return path
     best = max(candidates, key=_read_model_steps)
@@ -186,7 +190,10 @@ class NetworkSimulationWorker:
         self._dt = dt_seconds
         self._speed_factor = speed_factor
         self._seed = seed
-        self._rl_model_path = _resolve_rl_model(rl_model_path)
+        from hytwin.simulation.scenario import Scenario
+        from hytwin.rl.network_environment import obs_dim_for_n_sites
+        n_sites = len(Scenario.from_yaml(config_path).topology().site_ids)
+        self._rl_model_path = _resolve_rl_model(rl_model_path, obs_dim_for_n_sites(n_sites))
         self._rl_available = Path(str(self._rl_model_path) + ".zip").exists()
         self._q: queue.Queue = queue.Queue(maxsize=queue_maxsize)
         self._running = threading.Event()
