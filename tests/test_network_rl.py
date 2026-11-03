@@ -168,8 +168,7 @@ def test_rl_controller_rebuilds_forecast_obs():
     assert infer_n_sites_from_obs_dim(obs.shape[0]) == len(topo.site_ids)
     ctrl = NetworkRLController(SimpleNamespace(observation_space=env.observation_space), topo,
                                twin=env._twin, forecast="perfect")
-    n = 9 * len(topo.site_ids)
-    np.testing.assert_allclose(ctrl._obs_from_state(None, env._ts)[-n:], obs[-n:])
+    np.testing.assert_allclose(ctrl._obs_from_state(None, env._ts), obs)        # cold start too (real SOC)
     zero = np.zeros(env.action_space.shape, dtype=np.float32)
     for _ in range(40):
         obs, *_, info = env.step(zero)

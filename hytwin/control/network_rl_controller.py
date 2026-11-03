@@ -93,12 +93,14 @@ class NetworkRLController:
                 env._fut, env._fut_t0 = [], ts
             env._step_count = int(round((ts - self._t0).total_seconds() / env._dt))
         if ns is None:
+            if self._twin is not None:          # same cold observation as env.reset (real tank SOC)
+                env._twin, env._ts = self._twin, ts
+                return env._observe_cold()
             feats: List[float] = []
             for sid in self._site_ids:
                 feats += [0.5, 0.0, 0.0, 0.30 / 0.5, 1.0, 0.0, 0.0, 0.0]
             feats += env._time_feats(ts)
             feats += env._forecast_feats(ts)
-            feats += env._site_forecast_feats()
             return np.clip(np.array(feats, dtype=np.float32), -2.0, 2.0)
         return env._observe(ns)
 

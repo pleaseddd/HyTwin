@@ -145,21 +145,24 @@ def _component_view(node) -> Optional[Dict[str, Any]]:
 # Objective breakdown (same shape the RL reward optimises — for the AI screen)
 # ============================================================================
 
-def _objective_terms(ns) -> Dict[str, float]:
-    """Live objective decomposition — mirrors NetworkRewardConfig (env reward)."""
+def _objective_terms(ns, topology) -> Dict[str, float]:
+    """Live objective decomposition — same weights and reference scales as the env
+    reward (NetworkRewardConfig with the network's rl_reward block)."""
+    from hytwin.rl.network_environment import NetworkRewardConfig
+    rc = NetworkRewardConfig(**topology.rl_reward)
     unmet_frac = ns.unmet_demand_kw / (ns.total_load_kw + 1e-9)
-    soc_dev = abs(ns.avg_h2_soc - 0.5)
-    unmet = -(9.0 * unmet_frac + 25.0 * unmet_frac ** 2)
-    if unmet_frac > 0.002:
-        unmet -= 0.5
+    soc_dev = abs(ns.avg_h2_soc - rc.soc_target)
+    unmet = -(rc.w_unmet_linear * unmet_frac + rc.w_unmet_quadratic * unmet_frac ** 2)
+    if unmet_frac > rc.unmet_tolerance:
+        unmet -= rc.w_unmet_event
     return {
-        "cost": round(-1.0 * (ns.total_cost_eur_step / 5.0), 3),
-        "co2": round(-0.3 * (ns.total_co2_kg_step / 10.0), 3),
+        "cost": round(-rc.w_cost * (ns.total_cost_eur_step / rc.ref_cost_eur_step), 3),
+        "co2": round(-rc.w_co2 * (ns.total_co2_kg_step / rc.ref_co2_kg_step), 3),
         "unmet": round(unmet, 3),
-        "self_sufficiency": round(0.4 * ns.network_self_sufficiency, 3),
-        "renewable": round(0.3 * ns.network_renewable_fraction, 3),
-        "soc": round(0.3 * (1.0 - 2.0 * soc_dev), 3),
-        "curtailment": round(-0.1 * min(1.0, ns.total_curtailed_kw / 500.0), 3),
+        "self_sufficiency": round(rc.w_self_sufficiency * ns.network_self_sufficiency, 3),
+        "renewable": round(rc.w_renewable * ns.network_renewable_fraction, 3),
+        "soc": round(rc.w_soc_health * (1.0 - 2.0 * soc_dev), 3),
+        "curtailment": round(-rc.w_curtailment * min(1.0, ns.total_curtailed_kw / rc.ref_curtail_kw), 3),
     }
 
 
@@ -441,7 +444,7 @@ class NetworkSimulationWorker:
         frame["weather"] = self._weather_view()
         frame["components"] = {sid: self.node_components(sid) for sid in self._twin.topology.site_ids}
         frame["actions"] = self._last_actions
-        frame["objective"] = _objective_terms(ns)
+        frame["objective"] = _objective_terms(ns, self._topo)
 
         new_events = self._detect_events(ns, frame["components"])
         frame["new_events"] = new_events

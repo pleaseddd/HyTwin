@@ -369,3 +369,19 @@ def test_training_captures_reward_history(tmp_path):
         # The lightweight global status must not embed the reward history.
         main_status = client.get("/status").json()
         assert "reward_history" not in main_status["training"]
+
+
+def test_objective_terms_match_env_reward():
+    """The dashboard's objective panel uses the env reward's weights and per-network scales."""
+    import numpy as np
+    from dashboard.network_app import _objective_terms
+    from hytwin.rl.network_environment import NetworkH2GridEnv
+    from hytwin.simulation.scenario import Scenario
+    topo = Scenario.from_yaml(DEFAULT_CONFIG).topology()
+    env = NetworkH2GridEnv(topo)
+    env.reset(seed=1)
+    for _ in range(5):
+        _, _, _, _, info = env.step(env.action_space.sample())
+    terms = _objective_terms(info["network_state"], topo)
+    for k in ("cost", "co2", "unmet", "curtailment", "soc"):
+        assert terms[k] == pytest.approx(info["reward_terms"][k], abs=1e-3), k
