@@ -70,9 +70,9 @@ FORECAST_ERR_TAU_H = 6.0
 N_SITE_FORECAST = 3 * len(FORECAST_WINDOWS_H)
 
 
-def obs_dim_for_n_sites(n_sites: int) -> int:
-    """Observation-space size for a network with *n_sites* nodes."""
-    return N_SITE_OBS * n_sites + N_GLOBAL_OBS + N_FORECAST
+def obs_dim_for_n_sites(n_sites: int, forecast: bool = False) -> int:
+    """Observation-space size for a network with *n_sites* nodes (with or without site forecasts)."""
+    return (N_SITE_OBS + (N_SITE_FORECAST if forecast else 0)) * n_sites + N_GLOBAL_OBS + N_FORECAST
 
 
 def infer_n_sites_from_obs_dim(obs_dim: int) -> Optional[int]:
@@ -84,9 +84,10 @@ def infer_n_sites_from_obs_dim(obs_dim: int) -> Optional[int]:
     surface as an opaque crash inside ``model.predict()`` mid-simulation).
     """
     rem = obs_dim - N_GLOBAL_OBS - N_FORECAST
-    if rem <= 0 or rem % N_SITE_OBS != 0:
-        return None
-    return rem // N_SITE_OBS
+    for per_site in (N_SITE_OBS, N_SITE_OBS + N_SITE_FORECAST):     # without / with site forecasts
+        if rem > 0 and rem % per_site == 0:
+            return rem // per_site
+    return None
 
 
 def _pun_band_factor(ts: datetime) -> float:

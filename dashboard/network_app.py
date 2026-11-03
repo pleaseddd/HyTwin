@@ -264,7 +264,7 @@ class NetworkSimulationWorker:
     def _ensure_rl(self):
         if self._rl is None and self._rl_available:
             from hytwin.control.network_rl_controller import NetworkRLController
-            self._rl = NetworkRLController.from_model_path(self._rl_model_path, self._topo)
+            self._rl = NetworkRLController.from_model_path(self._rl_model_path, self._topo, self._twin)
         return self._rl
 
     def prepare(self) -> None:
@@ -651,6 +651,13 @@ def _model_dims(p: Path, meta: Dict[str, Any]) -> "tuple[Optional[int], Optional
     return obs_dim, act_dim
 
 
+def _obs_compatible(obs_dim: int, expected_obs_dim: int) -> bool:
+    """A model fits the network if trained on the same sites, with or without site forecasts."""
+    from hytwin.rl.network_environment import infer_n_sites_from_obs_dim, obs_dim_for_n_sites
+    n = infer_n_sites_from_obs_dim(expected_obs_dim)
+    return n is not None and obs_dim in (obs_dim_for_n_sites(n), obs_dim_for_n_sites(n, forecast=True))
+
+
 def list_models(model_dir: Path, expected_obs_dim: Optional[int] = None) -> List[Dict[str, Any]]:
     if not model_dir.exists():
         return []
@@ -667,7 +674,7 @@ def list_models(model_dir: Path, expected_obs_dim: Optional[int] = None) -> List
                 meta = {}
         obs_dim, act_dim = _model_dims(p, meta)
         n_sites = meta.get("n_sites") or (infer_n_sites_from_obs_dim(obs_dim) if obs_dim else None)
-        compatible = (obs_dim == expected_obs_dim) if (obs_dim and expected_obs_dim) else None
+        compatible = _obs_compatible(obs_dim, expected_obs_dim) if (obs_dim and expected_obs_dim) else None
         # steps: prefer sidecar JSON, fall back to reading from zip internals
         steps = meta.get("timesteps_completed") or _read_model_steps(p)
         out.append({
@@ -789,7 +796,7 @@ class LiveCompareWorker:
             if strat == "classical":
                 self._controllers[strat] = NetworkClassicalController.from_network(twin)
             elif strat == "rl":
-                self._controllers[strat] = NetworkRLController.from_model_path(self._rl_model_path, self._topo)
+                self._controllers[strat] = NetworkRLController.from_model_path(self._rl_model_path, self._topo, twin)
             else:
                 self._controllers[strat] = None
 
@@ -1209,7 +1216,7 @@ def create_app(
             model_obs_dim, _ = probe_model_dims(path)
         except Exception as e:  # noqa: BLE001
             raise HTTPException(status_code=400, detail=f"Could not load model: {e}")
-        if expected is not None and model_obs_dim != expected:
+        if expected is not None and not _obs_compatible(model_obs_dim, expected):
             n_model = infer_n_sites_from_obs_dim(model_obs_dim) or "?"
             n_now = len(worker.topology.site_ids) if worker.topology else "?"
             raise HTTPException(status_code=409, detail=(

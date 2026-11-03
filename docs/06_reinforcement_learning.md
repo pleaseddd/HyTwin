@@ -145,6 +145,7 @@ defaults, no boilerplate. Key flags:
 | `--config` | `italy_network_large.yaml` | network scenario |
 | `--save` | `output/rl_models/net_ppo_large` | output path (no `.zip`) |
 | `--device` | `auto` | `auto` / `cpu` / `cuda` |
+| `--forecast` | `none` | `none` / `noisy` / `perfect`: per-site renewable, load and price forecasts (0–6, 6–24, 24–48 h) in the observation. `NetworkRLController` and the dashboard load such models too; they rebuild the forecasts from the running twin |
 
 **Parallel environments** (`n_envs > 1`) use `SubprocVecEnv` to run
 independent simulations in separate processes, each on its own CPU core.

@@ -9,7 +9,9 @@ reproducible comparison harness (``hytwin.network.compare``).
 
 It rebuilds the exact per-site-factored observation the env produced and decodes
 the policy's per-site action block back into ``actions_by_site`` for
-``NetworkTwin.step``.
+``NetworkTwin.step``.  Models trained with per-site forecasts (longer observation)
+need the running ``NetworkTwin``: the forecasts come from a shadow copy of its
+exogenous models, taken at the first call, exactly as the env does at reset.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from ..rl.network_environment import (
-    NetworkH2GridEnv, N_SITE_OBS, N_SITE_ACT, N_GLOBAL_OBS,
+    NetworkH2GridEnv, N_SITE_ACT, FORECAST_WINDOWS_H, _ExogShadow,
 )
 
 
@@ -29,11 +31,20 @@ class NetworkRLController:
 
     name = "NetworkRLController"
 
-    def __init__(self, model, topology) -> None:
+    def __init__(self, model, topology, twin=None, forecast: str = "noisy") -> None:
         self._model = model
         self._topo = topology
+        self._twin = twin
         # Reuse the env purely for its obs-building / normalisation constants.
         self._ref = NetworkH2GridEnv(topology)
+        n_obs = int(model.observation_space.shape[0])
+        if n_obs != self._ref.observation_space.shape[0]:
+            self._ref = NetworkH2GridEnv(topology, forecast=forecast)
+            if n_obs != self._ref.observation_space.shape[0]:
+                raise ValueError(f"model observation {n_obs}-D does not fit this network")
+            if twin is None:
+                raise ValueError("a model with site forecasts needs the running NetworkTwin (twin=...)")
+        self._t0: Optional[datetime] = None
         self._site_ids: List[str] = list(topology.site_ids)
 
     # ------------------------------------------------------------------
@@ -41,15 +52,15 @@ class NetworkRLController:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_model_path(cls, model_path, topology) -> "NetworkRLController":
+    def from_model_path(cls, model_path, topology, twin=None) -> "NetworkRLController":
         model = _load_sb3(model_path)
-        return cls(model, topology)
+        return cls(model, topology, twin)
 
     @classmethod
     def factory(cls, model_path):
         """Return a ``factory(network_twin) -> controller`` for compare.run_network."""
         def _make(network_twin):
-            return cls.from_model_path(model_path, network_twin.topology)
+            return cls.from_model_path(model_path, network_twin.topology, network_twin)
         return _make
 
     # ------------------------------------------------------------------
@@ -73,12 +84,21 @@ class NetworkRLController:
 
     def _obs_from_state(self, ns, ts: datetime) -> np.ndarray:
         env = self._ref
+        if env._forecast != "none":
+            if self._t0 is None:      # forecasts start from the twin as it is now, like env.reset
+                self._t0 = ts
+                env._fc_rng = np.random.default_rng(0)
+                env._fc_err = env._fc_rng.normal(size=(len(FORECAST_WINDOWS_H), env._n, 3))
+                env._shadow = _ExogShadow(self._twin)
+                env._fut, env._fut_t0 = [], ts
+            env._step_count = int(round((ts - self._t0).total_seconds() / env._dt))
         if ns is None:
             feats: List[float] = []
             for sid in self._site_ids:
                 feats += [0.5, 0.0, 0.0, 0.30 / 0.5, 1.0, 0.0, 0.0, 0.0]
             feats += env._time_feats(ts)
             feats += env._forecast_feats(ts)
+            feats += env._site_forecast_feats()
             return np.clip(np.array(feats, dtype=np.float32), -2.0, 2.0)
         return env._observe(ns)
 

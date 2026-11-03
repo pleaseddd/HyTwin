@@ -156,6 +156,26 @@ def test_balance_and_tanks_use_physical_values():
         assert gs.physical["h2_consumption_kg_h"] == 0.0
 
 
+def test_rl_controller_rebuilds_forecast_obs():
+    """A model trained with site forecasts gets the same observation from the controller,
+    driven only by the running twin, as from the env."""
+    from types import SimpleNamespace
+    from hytwin.control.network_rl_controller import NetworkRLController
+    from hytwin.rl.network_environment import infer_n_sites_from_obs_dim
+    topo = _topo()
+    env = NetworkH2GridEnv(topo, forecast="perfect")
+    obs = env.reset(seed=3)[0]
+    assert infer_n_sites_from_obs_dim(obs.shape[0]) == len(topo.site_ids)
+    ctrl = NetworkRLController(SimpleNamespace(observation_space=env.observation_space), topo,
+                               twin=env._twin, forecast="perfect")
+    n = 9 * len(topo.site_ids)
+    np.testing.assert_allclose(ctrl._obs_from_state(None, env._ts)[-n:], obs[-n:])
+    zero = np.zeros(env.action_space.shape, dtype=np.float32)
+    for _ in range(40):
+        obs, *_, info = env.step(zero)
+        np.testing.assert_allclose(ctrl._obs_from_state(info["network_state"], env._ts), obs)
+
+
 def test_reproducible_reset_seed():
     env = NetworkH2GridEnv(_topo())
     env.reset(seed=7); a = env.step(np.zeros(9, dtype=np.float32))[1]
