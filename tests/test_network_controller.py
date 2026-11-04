@@ -127,3 +127,11 @@ def test_classical_optimises_vs_naive_over_week():
     assert c["storage_adjusted_cost_eur"] < n["storage_adjusted_cost_eur"]
     assert c["co2_kg"] <= n["co2_kg"]
     assert c["reliability"] >= n["reliability"] - 1e-9
+
+
+def test_kpi_h2_value_matches_reward():
+    """The dashboard's storage-adjusted cost must value H2 like the reward does."""
+    import inspect
+    from hytwin.rl.network_environment import NetworkRewardConfig
+    default = inspect.signature(aggregate_network_kpis).parameters["h2_value_eur_per_kg"].default
+    assert default == NetworkRewardConfig().h2_value_eur_per_kg

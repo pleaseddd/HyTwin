@@ -155,7 +155,7 @@ available — see [`docs/04_virtual_sensors.md`](docs/04_virtual_sensors.md).
   self-sufficiency, renewable fraction, grid economics, unmet-demand
   (linear + quadratic + event penalty), curtailment penalty, and an
   **H₂ storage-value term** that credits/debits tank-mass changes at
-  ≈4 €/kg so the agent can't fake a low cost by draining storage. There is
+  1.5 €/kg so the agent can't fake a low cost by draining storage. There is
   no fixed "optimal" reward — it's an unbounded weighted sum whose range
   depends on the episode's weather/price draw; the right benchmark is
   relative performance vs. the classical/naive controllers on the same

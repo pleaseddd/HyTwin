@@ -306,7 +306,8 @@ Without `w_storage_value`, an agent can make its cost term look artificially
 low by draining the H₂ tanks to zero — stored H₂ acts as "free" fuel from
 the reward's point of view. `w_storage_value` credits the reward when tank
 mass increases and debits it when tank mass decreases, valued at
-`h2_value_eur_per_kg` (≈4 €/kg — the same units as the grid-cost term). This
+`h2_value_eur_per_kg` (1.5 €/kg, what a kg saves when a fuel cell uses it — the
+same units as the grid-cost term). This
 internalises the reserve's replacement value directly into what the agent
 optimises, mirroring the `storage_adjusted_cost` KPI used for reporting, and
 is what prevents the reward-hacking behaviour described in §6.2.

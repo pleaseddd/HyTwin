@@ -36,16 +36,16 @@ from ..control.network_controller import NetworkClassicalController
 def aggregate_network_kpis(
     results: List[NetworkState],
     dt_seconds: float,
-    h2_value_eur_per_kg: float = 4.0,
+    h2_value_eur_per_kg: float = 1.5,
 ) -> Dict[str, float]:
     """
     Aggregate a run's per-step NetworkStates into scalar KPIs.
 
     ``storage_adjusted_cost_eur`` credits/debits the change in total stored H₂
-    over the run at ``h2_value_eur_per_kg`` (default 3 €/kg, ~electrolytic
-    production cost).  Without it, a strategy that simply *drains* H₂ storage
-    looks artificially cheap — the raw ``cost_eur`` ignores the value of the
-    reserve it burned.  This makes strategies with different terminal SOC
+    over the run at ``h2_value_eur_per_kg`` (default 1.5 €/kg, the same value as
+    ``NetworkRewardConfig.h2_value_eur_per_kg``: what a kg saves when used).
+    Without it, a strategy that simply *drains* H₂ storage looks artificially
+    cheap — the raw ``cost_eur`` ignores the value of the reserve it burned.  This makes strategies with different terminal SOC
     comparable, which is essential for a fair Traditional-vs-AI verdict.
     """
     dt_h = dt_seconds / 3600.0
